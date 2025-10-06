@@ -71,9 +71,9 @@
 
 ```yml
 services:
-  moontv-core:
-    image: ghcr.io/moontechlab/lunatv:latest
-    container_name: moontv-core
+  moontv:
+    image: ghcr.io/free-diy/lunatv:latest
+    container_name: moontv
     restart: on-failure
     ports:
       - '3000:3000'
@@ -82,13 +82,14 @@ services:
       - PASSWORD=admin_password
       - NEXT_PUBLIC_STORAGE_TYPE=kvrocks
       - KVROCKS_URL=redis://moontv-kvrocks:6666
+      - AUTH_TOKEN=授权码
     networks:
       - moontv-network
     depends_on:
       - moontv-kvrocks
   moontv-kvrocks:
     image: apache/kvrocks
-    container_name: moontv-kvrocks
+    container_name: kvrocks
     restart: unless-stopped
     volumes:
       - kvrocks-data:/var/lib/kvrocks
@@ -105,9 +106,9 @@ volumes:
 
 ```yml
 services:
-  moontv-core:
-    image: ghcr.io/moontechlab/lunatv:latest
-    container_name: moontv-core
+  moontv:
+    image: ghcr.io/free-diy/lunatv:latest
+    container_name: moontv
     restart: on-failure
     ports:
       - '3000:3000'
@@ -116,13 +117,14 @@ services:
       - PASSWORD=admin_password
       - NEXT_PUBLIC_STORAGE_TYPE=redis
       - REDIS_URL=redis://moontv-redis:6379
+      - AUTH_TOKEN=授权码
     networks:
       - moontv-network
     depends_on:
       - moontv-redis
   moontv-redis:
     image: redis:alpine
-    container_name: moontv-redis
+    container_name: redis
     restart: unless-stopped
     networks:
       - moontv-network
@@ -141,9 +143,9 @@ networks:
 3. 使用如下 docker compose
 ```yml
 services:
-  moontv-core:
-    image: ghcr.io/moontechlab/lunatv:latest
-    container_name: moontv-core
+  moontv:
+    image: ghcr.io/free-diy/lunatv:latest
+    container_name: moontv
     restart: on-failure
     ports:
       - '3000:3000'
@@ -153,6 +155,7 @@ services:
       - NEXT_PUBLIC_STORAGE_TYPE=upstash
       - UPSTASH_URL=上面 https 开头的 HTTPS ENDPOINT
       - UPSTASH_TOKEN=上面的 TOKEN
+      - AUTH_TOKEN=授权码
 ```
 
 ## 配置文件
