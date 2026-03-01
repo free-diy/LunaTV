@@ -9,9 +9,11 @@ on:
         default: 'latest'
         type: string
   push:
-    branches: [ main, master, dev ]
+    branches: [ main, master ]
   pull_request:
-    branches: [ main, master, dev ]
+    branches: [ main, master ]
+  release:
+    types: [ published ]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -38,35 +40,17 @@ jobs:
         run: |
           echo "PLATFORM_NAME=${{ matrix.platform }}" | sed 's|/|-|g' >> $GITHUB_ENV
 
+      - name: Determine Docker tag
+        id: docker-tag
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ github.event.inputs.tag || 'latest' }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout source code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-
-      - name: Check if version changed
-        id: version_check
-        run: |
-          CURRENT_VERSION=$(node -p "require('./package.json').version")
-          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
-
-          # Check if this is the first commit or if previous commit exists
-          if git rev-parse HEAD~1 >/dev/null 2>&1; then
-            git checkout HEAD~1 -- package.json 2>/dev/null || echo "{\"version\":\"0.0.0\"}" > package.json.old
-            PREVIOUS_VERSION=$(node -p "try { require('./package.json').version } catch(e) { '0.0.0' }")
-            git checkout HEAD -- package.json
-          else
-            PREVIOUS_VERSION="0.0.0"
-          fi
-
-          echo "previous_version=$PREVIOUS_VERSION" >> $GITHUB_OUTPUT
-
-          if [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
-            echo "version_changed=true" >> $GITHUB_OUTPUT
-            echo "Version changed: $PREVIOUS_VERSION -> $CURRENT_VERSION"
-          else
-            echo "version_changed=false" >> $GITHUB_OUTPUT
-            echo "Version unchanged: $CURRENT_VERSION"
-          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -85,12 +69,13 @@ jobs:
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
+
         with:
-          images: ghcr.io/${{ steps.lowercase.outputs.owner }}/lunatv
+          images: ghcr.io/moontechlab/lunatv
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=${{ steps.version_check.outputs.current_version }},enable=${{ steps.version_check.outputs.version_changed == 'true' }}
-            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event.inputs.tag != '' }}
+            type=raw,value=${{ github.event.inputs.tag || 'latest' }},enable={{is_default_branch}}
+            type=semver,pattern={{version}},enable=${{ github.event_name == 'release' }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'release' }}
 
       - name: Build and push by digest
         id: build
@@ -124,35 +109,6 @@ jobs:
     needs:
       - build
     steps:
-      - name: Checkout source code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-
-      - name: Check version
-        id: version_check
-        run: |
-          CURRENT_VERSION=$(node -p "require('./package.json').version")
-          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
-
-          if git rev-parse HEAD~1 >/dev/null 2>&1; then
-            git checkout HEAD~1 -- package.json 2>/dev/null || echo "{\"version\":\"0.0.0\"}" > package.json.old
-            PREVIOUS_VERSION=$(node -p "try { require('./package.json').version } catch(e) { '0.0.0' }")
-            git checkout HEAD -- package.json
-          else
-            PREVIOUS_VERSION="0.0.0"
-          fi
-
-          echo "previous_version=$PREVIOUS_VERSION" >> $GITHUB_OUTPUT
-
-          if [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
-            echo "version_changed=true" >> $GITHUB_OUTPUT
-            echo "Version changed: $PREVIOUS_VERSION -> $CURRENT_VERSION"
-          else
-            echo "version_changed=false" >> $GITHUB_OUTPUT
-            echo "Version unchanged: $CURRENT_VERSION"
-          fi
-
       - name: Download digests
         uses: actions/download-artifact@v4
         with:
@@ -174,24 +130,20 @@ jobs:
         id: lowercase
         run: echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
 
+      - name: Determine Docker tag
+        id: docker-tag
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ github.event.inputs.tag || 'latest' }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create manifest list and push
         working-directory: /tmp/digests
         run: |
-          # Always create latest tag
-          docker buildx imagetools create -t ghcr.io/${{ steps.lowercase.outputs.owner }}/lunatv:latest \
-            $(printf 'ghcr.io/${{ steps.lowercase.outputs.owner }}/lunatv@sha256:%s ' *)
-
-          # Create version tag if version changed
-          if [ "${{ steps.version_check.outputs.version_changed }}" = "true" ]; then
-            docker buildx imagetools create -t ghcr.io/${{ steps.lowercase.outputs.owner }}/lunatv:${{ steps.version_check.outputs.current_version }} \
-              $(printf 'ghcr.io/${{ steps.lowercase.outputs.owner }}/lunatv@sha256:%s ' *)
-          fi
-
-          # Create custom tag if provided
-          if [ -n "${{ github.event.inputs.tag }}" ] && [ "${{ github.event.inputs.tag }}" != "latest" ]; then
-            docker buildx imagetools create -t ghcr.io/${{ steps.lowercase.outputs.owner }}/lunatv:${{ github.event.inputs.tag }} \
-              $(printf 'ghcr.io/${{ steps.lowercase.outputs.owner }}/lunatv@sha256:%s ' *)
-          fi
+          docker buildx imagetools create -t ghcr.io/moontechlab/lunatv:${{ steps.docker-tag.outputs.tag }} \
+            $(printf 'ghcr.io/moontechlab/lunatv@sha256:%s ' *)
 
   cleanup-refresh:
     runs-on: ubuntu-latest
